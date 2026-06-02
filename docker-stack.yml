@@ -1,0 +1,95 @@
+# docker-stack.yml – Docker Swarm deployment
+#
+# Deploy:   docker stack deploy -c docker-stack.yml tempconverter
+# Remove:   docker stack rm tempconverter
+# Scale:    docker service scale tempconverter_app=3
+#
+# Prerequisites:
+#   docker swarm init          (on manager node)
+#   docker swarm join ...      (on worker nodes)
+
+version: "3.8"
+
+services:
+  # ─────────────────────────────────────────────
+  # MySQL 8 – exactly ONE replica (stateful)
+  # ─────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: tempconverterdb
+      MYSQL_USER: appuser        # Non-root user (requirement)
+      MYSQL_PASSWORD: apppassword
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - tempnet
+    deploy:
+      replicas: 1                # Exactly one DB instance (requirement)
+      placement:
+        constraints:
+          - node.role == manager # Keep DB on manager node
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+  # ─────────────────────────────────────────────
+  # TempConverter app – TWO replicas, load balanced
+  # via Docker Swarm built-in ingress (port 80)
+  # ─────────────────────────────────────────────
+  app:
+    image: yourdockerhubuser/tempconverter:latest
+    ports:
+      - target: 5000
+        published: 80
+        protocol: tcp
+        mode: ingress           # Swarm ingress load balancer on port 80 (requirement)
+    environment:
+      DB_USER: appuser
+      DB_PASS: apppassword
+      DB_HOST: db
+      DB_NAME: tempconverterdb
+      STUDENT: "Your Name Here"
+      COLLEGE: "Algebra Bernays University"
+      FLASK_APP: app.py
+    networks:
+      - tempnet
+    depends_on:
+      - db
+    deploy:
+      replicas: 2               # Two app replicas (requirement)
+      placement:
+        # Ensure no two replicas run on the same node (requirement)
+        max_replicas_per_node: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+
+networks:
+  tempnet:
+    driver: overlay             # Overlay network spans all Swarm nodes
+
+volumes:
+  db_data:
+    driver: local
+
+# ─────────────────────────────────────────────
+# SCALING TO 3 REPLICAS
+# ─────────────────────────────────────────────
+# After deployment, scale the app service to 3 replicas with:
+#
+#   docker service scale tempconverter_app=3
+#
+# Or update the stack file: change replicas to 3, then re-deploy:
+#
+#   docker stack deploy -c docker-stack.yml tempconverter
+#
+# Note: With max_replicas_per_node: 1 and 3 replicas, you need at least 3 Swarm nodes.
+# ─────────────────────────────────────────────

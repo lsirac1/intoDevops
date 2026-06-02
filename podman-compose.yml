@@ -1,0 +1,62 @@
+# podman-compose.yml  – Local deployment using Podman
+# Run with: podman-compose up -d
+# Stop with: podman-compose down
+
+version: "3.8"
+
+services:
+  # ─────────────────────────────
+  # MySQL 8 database service
+  # ─────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: tempconverter-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: tempconverterdb
+      MYSQL_USER: appuser          # Non-root user (requirement)
+      MYSQL_PASSWORD: apppassword
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - tempnet
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "appuser", "-papppassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────
+  # TempConverter Flask application
+  # ─────────────────────────────
+  app:
+    image: yourdockerhubuser/tempconverter:latest
+    # Alternatively, build locally:
+    # build: .
+    container_name: tempconverter-app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # Database connection – non-root user
+      DB_USER: appuser
+      DB_PASS: apppassword
+      DB_HOST: db                 # Service name acts as hostname on the shared network
+      DB_NAME: tempconverterdb
+      # Student / College display (change to your details)
+      STUDENT: "Your Name Here"
+      COLLEGE: "Algebra Bernays University"
+      FLASK_APP: app.py
+    networks:
+      - tempnet
+    depends_on:
+      db:
+        condition: service_healthy
+
+networks:
+  tempnet:
+    driver: bridge
+
+volumes:
+  db_data:
