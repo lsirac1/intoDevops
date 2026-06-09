@@ -1,7 +1,7 @@
-# k8s/app.yaml – TempConverter Deployment + Service + Ingress
+# k8s/app.yaml – TempConverter Deployment + Service (NodePort) + Ingress
 # Apply: kubectl apply -f k8s/app.yaml
 #
-# Scale to 3 replicas:
+# Skaliranje na 3 replike:
 #   kubectl scale deployment tempconverter --replicas=3
 
 apiVersion: apps/v1
@@ -12,7 +12,7 @@ metadata:
   labels:
     app: tempconverter
 spec:
-  replicas: 2                   # Two app replicas (requirement)
+  replicas: 2                   # Dvije replike aplikacije (zahtjev 6b)
   selector:
     matchLabels:
       app: tempconverter
@@ -21,23 +21,31 @@ spec:
       labels:
         app: tempconverter
     spec:
-      # Anti-affinity: ensures no two replicas land on the same node (requirement)
+      # Anti-affinity: Kubernetes preferira rasporediti replike na razlicite
+      # nodeove. Koristi se 'preferred' (a ne 'required') kako bi na lokalnom
+      # single-node minikube clusteru sve replike i dalje radile (Running),
+      # dok bi se u produkcijskom multi-node clusteru rasporedile na razlicite
+      # nodeove (zahtjev 6b: replike ne na istom nodeu).
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchExpressions:
-                  - key: app
-                    operator: In
-                    values:
-                      - tempconverter
-              topologyKey: "kubernetes.io/hostname"
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - tempconverter
+                topologyKey: "kubernetes.io/hostname"
       containers:
         - name: tempconverter
-          image: yourdockerhubuser/tempconverter:latest
+          image: lsirac/tempconverter:latest
           ports:
             - containerPort: 5000
           env:
+            - name: DB_HOST
+              value: "mysql"          # Naziv MySQL Servicea
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -48,15 +56,13 @@ spec:
                 secretKeyRef:
                   name: tempconverter-secret
                   key: db-pass
-            - name: DB_HOST
-              value: "mysql"    # Matches the MySQL Service name
             - name: DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: tempconverter-secret
                   key: db-name
             - name: STUDENT
-              value: "Your Name Here"
+              value: "Lsirac"
             - name: COLLEGE
               value: "Algebra Bernays University"
             - name: FLASK_APP
@@ -75,7 +81,8 @@ spec:
             periodSeconds: 30
 
 ---
-# ClusterIP Service – internal load balancing between app pods
+# NodePort Service – eksponira aplikaciju lokalno na minikubeu (port 31041).
+# Interni port Servicea je 80, preusmjeren na containerPort 5000.
 apiVersion: v1
 kind: Service
 metadata:
@@ -87,11 +94,14 @@ spec:
   ports:
     - port: 80
       targetPort: 5000
-  type: ClusterIP
+      nodePort: 31041
+  type: NodePort
 
 ---
-# Ingress – exposes the app externally over port 80 (requirement)
-# Requires an Ingress Controller (e.g. nginx-ingress) to be installed
+# Ingress – produkcijsko izlaganje aplikacije vanjskom svijetu preko porta 80
+# (zahtjev 6a). Zahtijeva instaliran Ingress Controller (npr. nginx-ingress).
+# Na lokalnom minikubeu koristi se NodePort (gore), dok Ingress predstavlja
+# produkcijski put izlaganja preko standardnog porta 80.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -102,7 +112,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: tempconverter.local   # Change to your actual hostname / domain
+    - host: tempconverter.local
       http:
         paths:
           - path: /
@@ -112,19 +122,3 @@ spec:
                 name: tempconverter-svc
                 port:
                   number: 80
-
-# ─────────────────────────────────────────────
-# SCALING DOCUMENTATION
-# ─────────────────────────────────────────────
-#
-# Scale app to 3 replicas imperatively:
-#   kubectl scale deployment tempconverter --replicas=3
-#
-# Or update the replicas field above to 3 and re-apply:
-#   kubectl apply -f k8s/app.yaml
-#
-# Verify pods are on different nodes:
-#   kubectl get pods -o wide
-#
-# Note: With podAntiAffinity set to required, you need at least 3 nodes for 3 replicas.
-# ─────────────────────────────────────────────
