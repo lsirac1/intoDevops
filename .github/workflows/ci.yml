@@ -10,38 +10,23 @@ jobs:
   test:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_DATABASE: tempconverterdb
-          MYSQL_USER: appuser
-          MYSQL_PASSWORD: apppassword
-          MYSQL_ROOT_PASSWORD: rootpassword
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-    env:
-      DB_HOST: 127.0.0.1
-      DB_USER: appuser
-      DB_PASS: apppassword
-      DB_NAME: tempconverterdb
-  
+    timeout-minutes: 10          # safety net: fail fast instead of hanging
+
+    # No MySQL service needed: the tests run against an in-memory/file SQLite
+    # database (the test fixture sets DATABASE_URL to SQLite before importing
+    # the app). Production still uses MySQL via DB_* env vars.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - run: pip install -r requirements.txt pytest pytest-cov
       - run: python -m pytest tests/ -v --tb=short
-      
+
   build:
     name: Build & Push Container Image
     runs-on: ubuntu-latest
     needs: test   # only build if tests pass
+    timeout-minutes: 15
 
     steps:
       - name: Checkout source code
