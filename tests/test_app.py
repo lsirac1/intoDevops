@@ -67,12 +67,15 @@ class TestEnvironmentVariables:
 
 @pytest.fixture(scope='module')
 def app():
-    """Create the Flask application configured for testing with SQLite."""
-    # Set env vars BEFORE importing app so db_* vars are read correctly
-    os.environ.setdefault('DB_USER', 'test')
-    os.environ.setdefault('DB_PASS', 'test')
-    os.environ.setdefault('DB_HOST', 'localhost')
-    os.environ.setdefault('DB_NAME', 'testdb')
+    """Create the Flask application configured for testing with SQLite.
+
+    DATABASE_URL is set to a temporary SQLite file BEFORE importing the app,
+    so the SQLAlchemy engine is built against SQLite from the start and no
+    MySQL service is required to run the tests.
+    """
+    import tempfile
+    db_fd, db_path = tempfile.mkstemp(suffix='.db')
+    os.environ.setdefault('DATABASE_URL', 'sqlite:///' + db_path)
     os.environ.setdefault('STUDENT', 'Test Student')
     os.environ.setdefault('COLLEGE', 'Test College')
 
@@ -80,13 +83,14 @@ def app():
 
     flask_app.config['TESTING'] = True
     flask_app.config['WTF_CSRF_ENABLED'] = False
-    # Override to use in-memory SQLite so no MySQL container is required
-    flask_app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 
     with flask_app.app_context():
         db.create_all()
         yield flask_app
         db.drop_all()
+
+    os.close(db_fd)
+    os.unlink(db_path)
 
 
 @pytest.fixture(scope='module')
