@@ -16,7 +16,10 @@ db_pass = environ.get('DB_PASS', 'CHANGEME')
 db_host = environ.get('DB_HOST', 'CHANGEME')
 db_name = environ.get('DB_NAME', 'CHANGEME')
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://'+db_user+':'+db_pass+'@'+db_host+'/'+db_name
+# Default connection is MySQL (production). DATABASE_URL can override it
+# (e.g. CI sets it to SQLite) without changing production behaviour.
+default_uri = 'mysql+pymysql://'+db_user+':'+db_pass+'@'+db_host+'/'+db_name
+app.config['SQLALCHEMY_DATABASE_URI'] = environ.get('DATABASE_URL', default_uri)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 student = environ.get('STUDENT', 'Default Student')
